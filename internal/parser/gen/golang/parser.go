@@ -66,6 +66,7 @@ package parser
 import (
 	"bytes"
 	"fmt"
+	"os"
 
 	parseError "{{.ErrorImport}}"
 	"{{.TokenImport}}"
@@ -222,18 +223,15 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 		if v.Nonterminal == NTSymbol {
 			// Start discarding the input symbols until a symbol s
 			// is found which belongs to the follow set of NTSymbol.
-			for tok := p.nextToken.Lit; ; {
-				if _, ok := v.Terminals[string(tok)]; ok {
+			for tok := p.nextToken; len(tok.Lit) != 0; {
+				if _, ok := v.Terminals[string(tok.Lit)]; ok {
 					// Valid input symbol found.
 					resumeParsing = true
 					break
 				} else {
 					// Discard the input symbol.
-					tok = scanner.Scan().Lit
-					if len(tok) == 0 {
-						// No more input symbols left.
-						break
-					}
+					tok = scanner.Scan()
+					p.nextToken = tok
 				}
 			}
 			break
@@ -322,19 +320,23 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 			if recovered, errAttrib := p.Error(nil, scanner); !recovered {
 				p.nextToken = errAttrib.ErrorToken
 				if resume := p.PanicMode(scanner); !resume {
-					return nil, p.newError(nil)
+					return nil, p.newError(err)
 				} else {
 					// Spit out the error and resume parsing.
-					fmt.Println(err)
+					if err != nil {
+						fmt.Println(err)
+					}
 				}
 			}
 			if action = actionTab[p.stack.top()].actions[p.nextToken.Type]; action == nil {
 				// panic("Error recovery led to invalid action")
 				if resume := p.PanicMode(scanner); !resume {
-					return nil, p.newError(nil)
+					return nil, p.newError(err)
 				} else {
 					// Spit out the error and resume parsing.
-					fmt.Println(err)
+					if err != nil {
+						fmt.Println(err)
+					}
 				}
 			}
 		}
@@ -354,10 +356,12 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 			attrib, err := prod.ReduceFunc(p.stack.popN(prod.NumSymbols))
 			if err != nil {
 				if resume := p.PanicMode(scanner); !resume {
-					return nil, p.newError(nil)
+					return nil, p.newError(err)
 				} else {
 					// Spit out the error and resume parsing.
-					fmt.Println(err)
+					if err != nil {
+						fmt.Println(err)
+					}
 				}
 			} else {
 				p.stack.push(gotoTab[p.stack.top()][prod.NTType], attrib)
@@ -365,12 +369,13 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 		default:
 			// panic("unknown action: " + action.String())
 			if resume := p.PanicMode(scanner); !resume {
-				return nil, p.newError(nil)
+				return nil, p.newError(err)
 			} else {
 				// Spit out the error and resume parsing.
-				fmt.Println(err)
+				if err != nil {
+					fmt.Println(err)
+				}
 			}
-
 		}
 	}
 	return res, nil
