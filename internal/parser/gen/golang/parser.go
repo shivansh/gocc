@@ -174,6 +174,9 @@ func (p *Parser) Reset() {
 // be resumed normally.
 // TODO: Cap the total number of recoveries during a single run to a constant.
 func (p *Parser) PanicMode(scanner Scanner) bool {
+	NT := string(p.stack.attrib[len(p.stack.attrib)-1].(*token.Token).Lit)
+	fmt.Printf("OldTop: %v, %v\n", p.stack.top(), NT)
+
 	resume := false
 	// Traverse the stack until a state s with GOTO defined on a particular
 	// nonterminal A is found.
@@ -193,6 +196,7 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 		if validState != -1 {
 			// numPops is the number of pops to be performed.
 			numPops := len(p.stack.state) - 1 - i
+			fmt.Printf("numPops: %d\n", numPops)
 			p.stack.popN(numPops)
 			// Push the parser state GOTO(s, A) on the stack.
 			p.stack.push(validState, NTSymbol)
@@ -200,20 +204,22 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 		}
 	}
 
+	fmt.Printf("NewTop: %v, %v\n", validState, NTSymbol)
+
 	// TODO: retrieve the follow set of NTSymbol.
 	for _, v := range followsets {
 		if v.Nonterminal == NTSymbol {
 			// Start discarding the input symbols until a symbol s
 			// is found which belongs to the follow set of NTSymbol.
-			for {
-				if _, ok := v.Terminals[string(p.nextToken.Lit)]; ok {
+			for tok := p.nextToken.Lit; ; {
+				if _, ok := v.Terminals[string(tok)]; ok {
 					// Valid input symbol found.
 					fmt.Println(p.nextToken.Lit)
 					resume = true
 					break
 				} else {
 					// Discard the input symbol.
-					tok := scanner.Scan().Lit
+					tok = scanner.Scan().Lit
 					if len(tok) == 0 {
 						// No more input symbols left.
 						break
