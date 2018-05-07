@@ -20,6 +20,7 @@ package gen
 import (
 	"github.com/goccmack/gocc/internal/ast"
 	"github.com/goccmack/gocc/internal/config"
+	"github.com/goccmack/gocc/internal/parser/follow"
 	"github.com/goccmack/gocc/internal/parser/gen/golang"
 	"github.com/goccmack/gocc/internal/parser/lr1/items"
 	"github.com/goccmack/gocc/internal/parser/symbols"
@@ -27,7 +28,7 @@ import (
 )
 
 func Gen(pkg, outDir, header string, prods ast.SyntaxProdList, symbols *symbols.Symbols,
-	itemsets *items.ItemSets, tokMap *token.TokenMap, cfg config.Config) (conflicts map[int]items.RowConflicts) {
+	itemsets *items.ItemSets, tokMap *token.TokenMap, cfg config.Config, flw *follow.FollowSets) (conflicts map[int]items.RowConflicts) {
 
 	golang.GenAction(outDir)
 	conflicts = golang.GenActionTable(outDir, prods, itemsets, tokMap, cfg.Zip())
@@ -35,6 +36,7 @@ func Gen(pkg, outDir, header string, prods ast.SyntaxProdList, symbols *symbols.
 	golang.GenGotoTable(outDir, itemsets, symbols, cfg.Zip())
 	golang.GenParser(pkg, outDir, prods, itemsets, symbols, cfg)
 	golang.GenProductionsTable(pkg, outDir, header, prods, symbols, itemsets, tokMap)
+	golang.GenFollowSetTable(outDir, flw)
 
 	return
 }
