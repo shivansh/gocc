@@ -169,6 +169,63 @@ func (p *Parser) Reset() {
 	p.stack.push(0, nil)
 }
 
+// PanicMode implements panic-mode error recovery.
+// The stack top and input symbols are updated appropriately so that parsing can
+// be resumed normally.
+// TODO: Cap the total number of recoveries during a single run to a constant.
+func (p *Parser) PanicMode(scanner Scanner) bool {
+	resume := false
+	// Traverse the stack until a state s with GOTO defined on a particular
+	// nonterminal A is found.
+	validState := -1
+	NTSymbol := ""
+	for i := len(p.stack.state) - 1; i >= 0; i-- {
+		// For each state, check the GOTO table for presence of a valid
+		// nonterminal.
+		for k, v := range gotoTab[p.stack.state[i]] {
+			if v != -1 {
+				validState = p.stack.state[i]
+				// k is the index of the nonterminal symbol.
+				NTSymbol = productionsTable[k].Id
+				break
+			}
+		}
+		if validState != -1 {
+			// numPops is the number of pops to be performed.
+			numPops := len(p.stack.state) - 1 - i
+			p.stack.popN(numPops)
+			// Push the parser state GOTO(s, A) on the stack.
+			p.stack.push(validState, NTSymbol)
+			break
+		}
+	}
+
+	// TODO: retrieve the follow set of NTSymbol.
+	for _, v := range followsets {
+		if v.Nonterminal == NTSymbol {
+			// Start discarding the input symbols until a symbol s
+			// is found which belongs to the follow set of NTSymbol.
+			for {
+				if _, ok := v.Terminals[string(p.nextToken.Lit)]; ok {
+					// Valid input symbol found.
+					fmt.Println(p.nextToken.Lit)
+					resume = true
+					break
+				} else {
+					// Discard the input symbol.
+					tok := scanner.Scan().Lit
+					if len(tok) == 0 {
+						// No more input symbols left.
+						break
+					}
+				}
+			}
+			break
+		}
+	}
+	return resume
+}
+
 func (p *Parser) Error(err error, scanner Scanner) (recovered bool, errorAttrib *parseError.Error) {
 	errorAttrib = &parseError.Error{
 		Err:            err,
@@ -247,7 +304,9 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 		if action == nil {
 			if recovered, errAttrib := p.Error(nil, scanner); !recovered {
 				p.nextToken = errAttrib.ErrorToken
-				return nil, p.newError(nil)
+				if resume := p.PanicMode(scanner); !resume {
+					return nil, p.newError(nil)
+				}
 			}
 			if action = actionTab[p.stack.top()].actions[p.nextToken.Type]; action == nil {
 				panic("Error recovery led to invalid action")
@@ -268,7 +327,9 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 			prod := productionsTable[int(act)]
 			attrib, err := prod.ReduceFunc(p.stack.popN(prod.NumSymbols))
 			if err != nil {
-				return nil, p.newError(err)
+				if resume := p.PanicMode(scanner); !resume {
+					return nil, p.newError(nil)
+				}
 			} else {
 				p.stack.push(gotoTab[p.stack.top()][prod.NTType], attrib)
 			}
