@@ -143,3 +143,7 @@ func (this *FollowSets) String() string {
 	}
 	return buf.String()
 }
+
+func (this *FollowSets) Getter() map[string]first.SymbolSet {
+	return this.followSets
+}
