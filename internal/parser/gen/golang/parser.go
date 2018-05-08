@@ -180,63 +180,85 @@ func (p *Parser) Reset() {
 // PanicMode implements panic-mode error recovery. It updates the stack top and
 // the input symbols appropriately so that parsing can be resumed normally.
 func (p *Parser) PanicMode(scanner Scanner) bool {
+	fmt.Println(p.stack.String())
 	// Update the number of recoveries done until now.
 	p.recoveries++
 	if p.recoveries == RECOVERYLIMIT {
 		os.Exit(1)
 	}
 
+	// resumeParsing determines whether parsing can safely resume after the
+	// PanicMode routine returns.
 	resumeParsing := false
 
 	// Traverse the stack until a state s with GOTO defined on a particular
 	// nonterminal A is found.
 	validState := -1
-	NTSymbol := ""
+	// NTSymbols is a slice of valid nonterminal symbols on which GOTO is
+	// defined corresponding to a valid stack state.
+	NTSymbols := map[string]bool{}
 	// Parsing failure was encountered with the current state of the stack,
 	// as a result of which this state will eventually be popped. We start
 	// looking for valid states from one below the current stack top.
 	for i := len(p.stack.state) - 2; i >= 0; i-- {
 		// For each state, check the GOTO table for presence of a valid
 		// nonterminal.
-		for k, v := range gotoTab[p.stack.state[i]] {
+		for _, v := range gotoTab[p.stack.state[i]] {
 			if v != -1 {
 				validState = p.stack.state[i]
-				// k is the index of the nonterminal symbol.
-				NTSymbol = productionsTable[k].Id
 				break
 			}
 		}
 		if validState != -1 {
+			// Collect all nonterminals on which GOTO is defined
+			// corresponding to validState.
+			for k, v := range gotoTab[p.stack.state[i]] {
+				if v != -1 {
+					// k is index of the nonterminal symbol.
+					NTSymbols[productionsTable[k].Id] = true
+				}
+			}
 			// numPops is the number of pops to be performed.
 			numPops := len(p.stack.state) - 1 - i
 			fmt.Printf("numPops: %d\n", numPops)
 			p.stack.popN(numPops)
-			// Push the parser state GOTO(s, A) on the stack.
-			p.stack.push(validState, NTSymbol)
 			break
 		}
 	}
+	fmt.Println(p.stack.String())
 
-	fmt.Printf("NewTop: %v, %v\n", validState, NTSymbol)
-
-	for _, v := range followsets {
-		if v.Nonterminal == NTSymbol {
-			// Start discarding the input symbols until a symbol s
-			// is found which belongs to the follow set of NTSymbol.
-			for tok := p.nextToken; len(tok.Lit) != 0; {
-				if _, ok := v.Terminals[string(tok.Lit)]; ok {
-					// Valid input symbol found.
+	// Instead of discarding the input symbol right away, corresponding to
+	// all the nonterminal symbols in NTSymbols check if the input symbol
+	// belongs to the follow set of any one of them.
+	tok := p.nextToken
+	fmt.Println(NTSymbols)
+	for nt, _ := range NTSymbols {
+		for _, flw := range followsets {
+			if flw.Nonterminal == nt {
+				// Check if input symbol belongs to follow set.
+				if _, ok := flw.Terminals[string(tok.Lit)]; ok {
+					// Valid input symbol found belonging to
+					// the follow set of nt.
 					resumeParsing = true
+					fmt.Println("reached")
+					p.stack.push(validState, nt)
 					break
-				} else {
-					// Discard the input symbol.
-					tok = scanner.Scan()
-					p.nextToken = tok
 				}
 			}
+		}
+		if resumeParsing {
 			break
+		} else {
+			// Discard the input symbol only after all the valid
+			// nonterminals on which GOTO was defined have been checked.
+			tok = scanner.Scan()
+			if len(tok.Lit) == 0 {
+				break
+			}
+			p.nextToken = tok
 		}
 	}
+	fmt.Println(p.stack.String())
 
 	return resumeParsing
 }
