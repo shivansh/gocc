@@ -1,2 +1,2 @@
 regenerate:
-	gocc calc.bnf
+	gocc -v -debug_parser calc.bnf

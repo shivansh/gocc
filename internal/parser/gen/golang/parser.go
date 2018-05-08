@@ -183,6 +183,7 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 	{{- if .Debug }}
 		fmt.Println(p.stack.String())
 	{{- end }}
+
 	// Update the number of recoveries done until now.
 	p.recoveries++
 	if p.recoveries == RECOVERYLIMIT {
@@ -198,7 +199,8 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 	validState := -1
 	// NTSymbols is a slice of valid nonterminal symbols on which GOTO is
 	// defined corresponding to a valid stack state.
-	NTSymbols := map[string]bool{}
+	// NTSymbols is a map of nonterminal id to its index in goto table
+	NTSymbols := map[string]int{}
 	// Parsing failure was encountered with the current state of the stack,
 	// as a result of which this state will eventually be popped. We start
 	// looking for valid states from one below the current stack top.
@@ -217,7 +219,7 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 			for k, v := range gotoTab[p.stack.state[i]] {
 				if v != -1 {
 					// k is index of the nonterminal symbol.
-					NTSymbols[productionsTable[k].Id] = true
+					NTSymbols[productionsTable[k].Id] = k
 				}
 			}
 			// numPops is the number of pops to be performed.
@@ -229,9 +231,6 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 			break
 		}
 	}
-	{{- if .Debug }}
-		fmt.Println(p.stack.String())
-	{{- end }}
 
 	// Instead of discarding the input symbol right away, corresponding to
 	// all the nonterminal symbols in NTSymbols check if the input symbol
@@ -241,7 +240,7 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 		fmt.Printf("input symbol: %s\n", tok.Lit)
 	{{- end }}
 	for len(tok.Lit) >= 0 {
-		for nt, _ := range NTSymbols {
+		for nt, ntIndex := range NTSymbols {
 			for _, flw := range followsets {
 				if flw.Nonterminal == nt {
 					// Check if input symbol belongs to follow set.
@@ -250,9 +249,30 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 						// the follow set of nt.
 						resumeParsing = true
 						{{- if .Debug }}
-							fmt.Println("found valid input")
+							fmt.Printf("The input symbol %s is valid\n", tok.Lit)
 						{{- end }}
-						p.stack.push(validState, nt)
+						// gotoState is the valid GOTO state which is to be pushed
+						// to the stack.
+						gotoState := gotoTab[validState][ntIndex]
+						// FIXME: don't push nt which is a string, push its attribute.
+						// It won't be possible to push its attribute since we don't
+						// know what it is going to be. One workaround is to push a
+						// dummy node instead with the same type as that of the actual
+						// attribute (which will be used when reduced). Since we are
+						// only concerned with error reporting and not the evaluations
+						// done after reductions, this approach will work.
+						// The problem which now remains is to guess the type of the
+						// attribute. The following approaches come to me on first look:
+						//	- Use an empty interface ??
+						//	  Seems like no -- https://stackoverflow.com/q/27971895/5107319
+						//	- Use the data in "productionstable.go" to get an idea of
+						//	  the type (quite hacky!).
+						//
+						// For the purposes of a demo using the BNF file of "calc" example
+						// available in gocc, the type of dummy node is int64 just to make
+						// things work.
+						var dummy int64
+						p.stack.push(gotoState, dummy)
 						break
 					}
 				}
@@ -270,7 +290,7 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 		p.nextToken = tok
 	}
 	{{- if .Debug }}
-		fmt.Println(p.stack.String())
+		fmt.Printf("Exiting panic mode\n%s", p.stack.String())
 	{{- end }}
 
 	return resumeParsing
@@ -354,12 +374,18 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 		if action == nil {
 			if recovered, errAttrib := p.Error(nil, scanner); !recovered {
 				p.nextToken = errAttrib.ErrorToken
+				{{- if .Debug }}
+					fmt.Println("1: Entering panic mode")
+				{{- end }}
 				if resume := p.PanicMode(scanner); !resume {
 					return nil, p.newError(err)
 				}
 			}
 			if action = actionTab[p.stack.top()].actions[p.nextToken.Type]; action == nil {
 				// panic("Error recovery led to invalid action")
+				{{- if .Debug }}
+					fmt.Println("2: Entering panic mode")
+				{{- end }}
 				if resume := p.PanicMode(scanner); !resume {
 					return nil, p.newError(err)
 				}
@@ -380,6 +406,9 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 			prod := productionsTable[int(act)]
 			attrib, err := prod.ReduceFunc(p.stack.popN(prod.NumSymbols))
 			if err != nil {
+				{{- if .Debug }}
+					fmt.Println("3: Entering panic mode")
+				{{- end }}
 				if resume := p.PanicMode(scanner); !resume {
 					return nil, p.newError(err)
 				} else {
@@ -391,6 +420,9 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 			}
 		default:
 			// panic("unknown action: " + action.String())
+			{{- if .Debug }}
+				fmt.Println("4: Entering panic mode")
+			{{- end }}
 			if resume := p.PanicMode(scanner); !resume {
 				return nil, p.newError(nil)
 			}
