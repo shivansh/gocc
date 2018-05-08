@@ -180,7 +180,9 @@ func (p *Parser) Reset() {
 // PanicMode implements panic-mode error recovery. It updates the stack top and
 // the input symbols appropriately so that parsing can be resumed normally.
 func (p *Parser) PanicMode(scanner Scanner) bool {
-	fmt.Println(p.stack.String())
+	{{- if .Debug }}
+		fmt.Println(p.stack.String())
+	{{- end }}
 	// Update the number of recoveries done until now.
 	p.recoveries++
 	if p.recoveries == RECOVERYLIMIT {
@@ -220,45 +222,56 @@ func (p *Parser) PanicMode(scanner Scanner) bool {
 			}
 			// numPops is the number of pops to be performed.
 			numPops := len(p.stack.state) - 1 - i
-			fmt.Printf("numPops: %d\n", numPops)
+			{{- if .Debug }}
+				fmt.Printf("numPops: %d\n", numPops)
+			{{- end }}
 			p.stack.popN(numPops)
 			break
 		}
 	}
-	fmt.Println(p.stack.String())
+	{{- if .Debug }}
+		fmt.Println(p.stack.String())
+	{{- end }}
 
 	// Instead of discarding the input symbol right away, corresponding to
 	// all the nonterminal symbols in NTSymbols check if the input symbol
 	// belongs to the follow set of any one of them.
 	tok := p.nextToken
-	fmt.Println(NTSymbols)
-	for nt, _ := range NTSymbols {
-		for _, flw := range followsets {
-			if flw.Nonterminal == nt {
-				// Check if input symbol belongs to follow set.
-				if _, ok := flw.Terminals[string(tok.Lit)]; ok {
-					// Valid input symbol found belonging to
-					// the follow set of nt.
-					resumeParsing = true
-					fmt.Println("reached")
-					p.stack.push(validState, nt)
-					break
+	{{- if .Debug }}
+		fmt.Printf("input symbol: %s\n", tok.Lit)
+	{{- end }}
+	for len(tok.Lit) >= 0 {
+		for nt, _ := range NTSymbols {
+			for _, flw := range followsets {
+				if flw.Nonterminal == nt {
+					// Check if input symbol belongs to follow set.
+					if _, ok := flw.Terminals[string(tok.Lit)]; ok {
+						// Valid input symbol found belonging to
+						// the follow set of nt.
+						resumeParsing = true
+						{{- if .Debug }}
+							fmt.Println("found valid input")
+						{{- end }}
+						p.stack.push(validState, nt)
+						break
+					}
 				}
+			}
+			if resumeParsing {
+				break
 			}
 		}
 		if resumeParsing {
 			break
-		} else {
-			// Discard the input symbol only after all the valid
-			// nonterminals on which GOTO was defined have been checked.
-			tok = scanner.Scan()
-			if len(tok.Lit) == 0 {
-				break
-			}
-			p.nextToken = tok
 		}
+		// Discard the input symbol only after all the valid
+		// nonterminals on which GOTO was defined have been checked.
+		tok = scanner.Scan()
+		p.nextToken = tok
 	}
-	fmt.Println(p.stack.String())
+	{{- if .Debug }}
+		fmt.Println(p.stack.String())
+	{{- end }}
 
 	return resumeParsing
 }
@@ -343,27 +356,17 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 				p.nextToken = errAttrib.ErrorToken
 				if resume := p.PanicMode(scanner); !resume {
 					return nil, p.newError(err)
-				} else {
-					// Spit out the error and resume parsing.
-					if err != nil {
-						fmt.Println(err)
-					}
 				}
 			}
 			if action = actionTab[p.stack.top()].actions[p.nextToken.Type]; action == nil {
 				// panic("Error recovery led to invalid action")
 				if resume := p.PanicMode(scanner); !resume {
 					return nil, p.newError(err)
-				} else {
-					// Spit out the error and resume parsing.
-					if err != nil {
-						fmt.Println(err)
-					}
 				}
 			}
 		}
 		{{- if .Debug }}
-		fmt.Printf("S%d %s %s\n", p.stack.top(), token.TokMap.TokenString(p.nextToken), action)
+			fmt.Printf("S%d %s %s\n", p.stack.top(), token.TokMap.TokenString(p.nextToken), action)
 		{{- end }}
 
 		switch act := action.(type) {
@@ -381,9 +384,7 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 					return nil, p.newError(err)
 				} else {
 					// Spit out the error and resume parsing.
-					if err != nil {
-						fmt.Println(err)
-					}
+					fmt.Println(err)
 				}
 			} else {
 				p.stack.push(gotoTab[p.stack.top()][prod.NTType], attrib)
@@ -391,12 +392,7 @@ func (p *Parser) Parse(scanner Scanner) (res interface{}, err error) {
 		default:
 			// panic("unknown action: " + action.String())
 			if resume := p.PanicMode(scanner); !resume {
-				return nil, p.newError(err)
-			} else {
-				// Spit out the error and resume parsing.
-				if err != nil {
-					fmt.Println(err)
-				}
+				return nil, p.newError(nil)
 			}
 		}
 	}
